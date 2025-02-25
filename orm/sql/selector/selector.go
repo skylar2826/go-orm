@@ -1,15 +1,26 @@
-package querier
+package selector
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"geektime-go-orm/orm/data"
 	"geektime-go-orm/orm/db"
 	"geektime-go-orm/orm/db/register"
 	"geektime-go-orm/orm/db/valuer"
 	"geektime-go-orm/orm/predicate"
+	sql2 "geektime-go-orm/orm/sql"
+	sqlBuilder2 "geektime-go-orm/orm/sqlCommonBuilder"
 	"reflect"
 )
+
+type Querier[T any] interface {
+	// Get 列、聚合函数、子查询
+	Get(ctx context.Context) (any, error)
+	GetMutli(ctx context.Context) ([]any, error)
+}
+
+var _ Querier[data.User] = &Selector[data.User]{}
 
 type Selector[T any] struct {
 	table        string
@@ -18,11 +29,11 @@ type Selector[T any] struct {
 	valueCreator valuer.Value
 	selects      []predicate.Selectable
 	model        *register.Model
-	sqlBuilder   SQLBuilder
+	sqlBuilder   *sqlBuilder2.SQLBuilder
 }
 
-func (s *Selector[T]) Build() (*Query, error) {
-	s.sqlBuilder.sb.WriteString("select ")
+func (s *Selector[T]) Build() (*sql2.Query, error) {
+	s.sqlBuilder.Sb.WriteString("select ")
 	if s.model == nil {
 		t := new(T)
 		var err error
@@ -30,24 +41,24 @@ func (s *Selector[T]) Build() (*Query, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.sqlBuilder.registerModel(s.model)
+		s.sqlBuilder.RegisterModel(s.model)
 	}
 
 	if len(s.selects) > 0 {
 		for i, sl := range s.selects {
-			err := s.sqlBuilder.buildExpression(sl.(predicate.Expression))
+			err := s.sqlBuilder.BuildExpression(sl.(predicate.Expression))
 			if err != nil {
 				return nil, err
 			}
-			s.sqlBuilder.buildAs(sl.(predicate.Aliasable))
+			s.sqlBuilder.BuildAs(sl.(predicate.Aliasable))
 			if i < len(s.selects)-1 {
-				s.sqlBuilder.sb.WriteString(", ")
+				s.sqlBuilder.Sb.WriteString(", ")
 			}
 		}
 	} else {
-		s.sqlBuilder.sb.WriteString("*")
+		s.sqlBuilder.Sb.WriteString("*")
 	}
-	s.sqlBuilder.sb.WriteString(" from ")
+	s.sqlBuilder.Sb.WriteString(" from ")
 
 	var table string
 	if s.table == "" {
@@ -55,7 +66,7 @@ func (s *Selector[T]) Build() (*Query, error) {
 	} else {
 		table = s.table
 	}
-	s.sqlBuilder.sb.WriteString(table)
+	s.sqlBuilder.Sb.WriteString(table)
 
 	length := len(s.where)
 	if length > 0 {
@@ -65,17 +76,17 @@ func (s *Selector[T]) Build() (*Query, error) {
 				exp = exp.And(expr)
 			}
 		}
-		s.sqlBuilder.sb.WriteString(" where ")
-		err := s.sqlBuilder.buildExpression(exp)
+		s.sqlBuilder.Sb.WriteString(" where ")
+		err := s.sqlBuilder.BuildExpression(exp)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	s.sqlBuilder.sb.WriteString(";")
+	s.sqlBuilder.Sb.WriteString(";")
 
-	return &Query{
-		SQL:  s.sqlBuilder.sb.String(),
+	return &sql2.Query{
+		SQL:  s.sqlBuilder.Sb.String(),
 		Args: s.sqlBuilder.Args,
 	}, nil
 }
@@ -210,6 +221,7 @@ func (s *Selector[T]) Select(columns ...predicate.Selectable) *Selector[T] {
 
 func NewSelector[T any](db *db.DB) *Selector[T] {
 	return &Selector[T]{
-		db: db,
+		db:         db,
+		sqlBuilder: &sqlBuilder2.SQLBuilder{Quote: db.Dialect.Quoter()},
 	}
 }

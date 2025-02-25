@@ -33,6 +33,13 @@ func (u *UnsafeValue) SetColumns(rows *sql.Rows) error {
 	return rows.Scan(colValues...)
 }
 
+func (u *UnsafeValue) Field(name string) (any, error) {
+	field := u.model.Fields[name]
+	addr := unsafe.Pointer(uintptr(u.val) + field.Offset)
+	val := reflect.NewAt(field.Typ, addr)
+	return val.Elem().Interface(), nil
+}
+
 func NewUnsafeValue(val any, model *register.Model) Value {
 	return &UnsafeValue{
 		// reflect.ValueOf(val).Pointer() 返回的是uintptr(具体的地址值 比如0x8888)

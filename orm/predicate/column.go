@@ -5,6 +5,9 @@ type Column struct {
 	Alias string
 }
 
+func (c Column) Assign() {
+}
+
 func (c Column) Aliasable() string {
 	return c.Alias
 }

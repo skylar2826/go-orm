@@ -7,12 +7,12 @@ import (
 )
 
 type JsonData[T any] struct {
-	val   T
+	Val   T
 	Valid bool
 }
 
 // Scan 数据库类型转go类型
-func (j *JsonData[T]) Scan(value any) error {
+func (j JsonData[T]) Scan(value any) error {
 	if value == nil {
 		j.Valid = false
 		return nil
@@ -32,15 +32,15 @@ func (j *JsonData[T]) Scan(value any) error {
 		return fmt.Errorf("不支持的类型：%T\n", val)
 	}
 
-	return json.Unmarshal(bytes, &j.val)
+	return json.Unmarshal(bytes, &j.Val)
 }
 
 // Value go类型转数据库类型
-func (j *JsonData[T]) Value() (driver.Value, error) {
+func (j JsonData[T]) Value() (driver.Value, error) {
 	if !j.Valid {
 		return nil, nil
 	}
-	data, err := json.Marshal(j.val)
+	data, err := json.Marshal(j.Val)
 	if err != nil {
 		return nil, err
 	}

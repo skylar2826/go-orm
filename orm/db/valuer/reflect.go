@@ -45,6 +45,10 @@ func (r *reflectValue) SetColumns(rows *sql.Rows) error {
 	return nil
 }
 
+func (r *reflectValue) Field(name string) (any, error) {
+	return r.val.FieldByName(name).Interface(), nil
+}
+
 func NewReflectValue(val any, model *register.Model) Value {
 	return &reflectValue{
 		val:   reflect.ValueOf(val).Elem(),
