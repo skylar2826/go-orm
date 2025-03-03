@@ -2,28 +2,22 @@ package sqlCommonBuilder
 
 import (
 	"fmt"
-	"geektime-go-orm/orm/db/register"
+	"geektime-go-orm/orm/db/session"
 	"geektime-go-orm/orm/errors"
 	"geektime-go-orm/orm/predicate"
 	"strings"
 )
 
 type SQLBuilder struct {
-	Sb    strings.Builder
-	Args  []any
-	model *register.Model
-	Quote string
-}
-
-func (s *SQLBuilder) RegisterModel(model *register.Model) *SQLBuilder {
-	s.model = model
-	return s
+	Sb   strings.Builder
+	Args []any
+	session.Core
 }
 
 func (s *SQLBuilder) BuildAs(val predicate.Aliasable) {
 	alias := val.Aliasable()
 	if alias != "" {
-		s.Sb.WriteString(fmt.Sprintf(" AS %s%s%s", s.Quote, alias, s.Quote))
+		s.Sb.WriteString(fmt.Sprintf(" AS %s%s%s", s.Dialect.Quoter(), alias, s.Dialect.Quoter()))
 	}
 }
 
@@ -40,13 +34,13 @@ func (s *SQLBuilder) buildAggregate(aggregate predicate.Aggregate) error {
 }
 
 func (s *SQLBuilder) BuildColumn(column predicate.Column) error {
-	if s.model == nil {
+	if s.Model == nil {
 		return fmt.Errorf("SQLBuilder: model不存在")
 	}
-	if name, ok := s.model.Fields[column.Name]; !ok {
+	if name, ok := s.Model.Fields[column.Name]; !ok {
 		return errors.FieldNotFoundErr(column.Name)
 	} else {
-		s.Sb.WriteString(fmt.Sprintf("%s%s%s", s.Quote, name.ColName, s.Quote))
+		s.Sb.WriteString(fmt.Sprintf("%s%s%s", s.Dialect.Quoter(), name.ColName, s.Dialect.Quoter()))
 	}
 	return nil
 }

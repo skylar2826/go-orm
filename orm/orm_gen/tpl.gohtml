@@ -1,0 +1,28 @@
+package {{ .Package }}
+
+Import (
+predicate "geektime-go-orm/orm/predicate"
+{{range $idx, $import := .Imports}}
+{{$import}}
+{{end}}
+)
+
+{{$opts := .Opts}}
+
+{{range $idx, $type := .Types}}
+    const (
+    {{range $jdx, $field := $type.Fields}}
+        {{$type.Name}}{{$field.Name}} = "{{$field.Name}}"
+    {{end}}
+    )
+
+   {{range $jdx, $field := $type.Fields}}
+        {{range $kdx, $op := $opts}}
+            func {{$type.Name}}{{$field.Name}}{{$op}}(val {{$field.Type}}) predicate.Predicate {
+                return predicate.C("{{$field.Name}}").{{$op}}(val)
+            }
+        {{end}}
+    {{end}}
+
+{{end}}
+
