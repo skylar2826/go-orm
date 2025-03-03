@@ -4,13 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"geektime-go-orm/orm/data"
-	"geektime-go-orm/orm/db"
-	"geektime-go-orm/orm/db/register"
+	"geektime-go-orm/orm"
+	"geektime-go-orm/orm/db/session"
 	"geektime-go-orm/orm/db/valuer"
+	"geektime-go-orm/orm/orm_gen/data"
 	"geektime-go-orm/orm/predicate"
 	sql2 "geektime-go-orm/orm/sql"
-	sqlBuilder2 "geektime-go-orm/orm/sqlCommonBuilder"
 	"reflect"
 )
 
@@ -25,48 +24,47 @@ var _ Querier[data.User] = &Selector[data.User]{}
 type Selector[T any] struct {
 	table        string
 	where        []predicate.Predicate
-	db           *db.DB
+	sess         session.Session
 	valueCreator valuer.Value
 	selects      []predicate.Selectable
-	model        *register.Model
-	sqlBuilder   *sqlBuilder2.SQLBuilder
+
+	sql2.SQLBuilder
 }
 
-func (s *Selector[T]) Build() (*sql2.Query, error) {
-	s.sqlBuilder.Sb.WriteString("select ")
-	if s.model == nil {
+func (s *Selector[T]) Build() (*orm.Query, error) {
+	s.Sb.WriteString("select ")
+	if s.Model == nil {
 		t := new(T)
 		var err error
-		s.model, err = s.db.R.Get(t) // 此处只使用了类型信息，可以new(T);无需保证和Get()方法是同个t
+		s.Model, err = s.R.Get(t) // 此处只使用了类型信息，可以new(T);无需保证和Get()方法是同个t
 		if err != nil {
 			return nil, err
 		}
-		s.sqlBuilder.RegisterModel(s.model)
 	}
 
 	if len(s.selects) > 0 {
 		for i, sl := range s.selects {
-			err := s.sqlBuilder.BuildExpression(sl.(predicate.Expression))
+			err := s.BuildExpression(sl.(predicate.Expression))
 			if err != nil {
 				return nil, err
 			}
-			s.sqlBuilder.BuildAs(sl.(predicate.Aliasable))
+			s.BuildAs(sl.(predicate.Aliasable))
 			if i < len(s.selects)-1 {
-				s.sqlBuilder.Sb.WriteString(", ")
+				s.Sb.WriteString(", ")
 			}
 		}
 	} else {
-		s.sqlBuilder.Sb.WriteString("*")
+		s.Sb.WriteString("*")
 	}
-	s.sqlBuilder.Sb.WriteString(" from ")
+	s.Sb.WriteString(" from ")
 
 	var table string
 	if s.table == "" {
-		table = s.model.TableName
+		table = s.Model.TableName
 	} else {
 		table = s.table
 	}
-	s.sqlBuilder.Sb.WriteString(table)
+	s.Sb.WriteString(table)
 
 	length := len(s.where)
 	if length > 0 {
@@ -76,18 +74,18 @@ func (s *Selector[T]) Build() (*sql2.Query, error) {
 				exp = exp.And(expr)
 			}
 		}
-		s.sqlBuilder.Sb.WriteString(" where ")
-		err := s.sqlBuilder.BuildExpression(exp)
+		s.Sb.WriteString(" where ")
+		err := s.BuildExpression(exp)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	s.sqlBuilder.Sb.WriteString(";")
+	s.Sb.WriteString(";")
 
-	return &sql2.Query{
-		SQL:  s.sqlBuilder.Sb.String(),
-		Args: s.sqlBuilder.Args,
+	return &orm.Query{
+		SQL:  s.Sb.String(),
+		Args: s.Args,
 	}, nil
 }
 
@@ -99,7 +97,7 @@ func (s *Selector[T]) handleScalar(rows *sql.Rows) (any, error) {
 
 	// 只有一列时，有可能是聚合函数、子查询
 	if len(columns) == 1 {
-		if _, ok := s.model.ColumnMap[columns[0]]; !ok {
+		if _, ok := s.Model.ColumnMap[columns[0]]; !ok {
 			var val any
 			err = rows.Scan(&val)
 			if err != nil {
@@ -112,7 +110,7 @@ func (s *Selector[T]) handleScalar(rows *sql.Rows) (any, error) {
 }
 
 func (s *Selector[T]) handleColumns(t *T, rows *sql.Rows) (*T, error) {
-	v := s.db.ValueCreator(t, s.model)
+	v := s.ValueCreator(t, s.Model)
 	err := v.SetColumns(rows)
 	if err != nil {
 		return nil, err
@@ -135,7 +133,7 @@ func (s *Selector[T]) Get(ctx context.Context) (any, error) {
 	}
 
 	var rows *sql.Rows
-	rows, err = s.db.DB.QueryContext(ctx, query.SQL, query.Args...)
+	rows, err = s.sess.QueryContext(ctx, query.SQL, query.Args...)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +173,7 @@ func (s *Selector[T]) GetMutli(ctx context.Context) ([]any, error) {
 	}
 
 	var rows *sql.Rows
-	rows, err = s.db.DB.QueryContext(ctx, query.SQL, query.Args...)
+	rows, err = s.sess.QueryContext(ctx, query.SQL, query.Args...)
 	if err != nil {
 		return nil, err
 	}
@@ -219,9 +217,9 @@ func (s *Selector[T]) Select(columns ...predicate.Selectable) *Selector[T] {
 	return s
 }
 
-func NewSelector[T any](db *db.DB) *Selector[T] {
+func NewSelector[T any](sess session.Session) *Selector[T] {
 	return &Selector[T]{
-		db:         db,
-		sqlBuilder: &sqlBuilder2.SQLBuilder{Quote: db.Dialect.Quoter()},
+		sess:       sess,
+		SQLBuilder: sql2.SQLBuilder{Core: sess.GetCore()},
 	}
 }

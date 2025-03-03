@@ -1,7 +1,6 @@
 package {{ .Package }}
 
-Import (
-predicate "geektime-go-orm/orm/predicate"
+import (
 {{range $idx, $import := .Imports}}
 {{$import}}
 {{end}}
@@ -19,7 +18,7 @@ predicate "geektime-go-orm/orm/predicate"
    {{range $jdx, $field := $type.Fields}}
         {{range $kdx, $op := $opts}}
             func {{$type.Name}}{{$field.Name}}{{$op}}(val {{$field.Type}}) predicate.Predicate {
-                return predicate.C("{{$field.Name}}").{{$op}}(val)
+                return predicate.C("{{$field.Name}}").{{$op}}(predicate.Valuer{Value: val})
             }
         {{end}}
     {{end}}

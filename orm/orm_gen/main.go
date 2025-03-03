@@ -6,11 +6,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"html/template"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 )
 
 //go:embed tpl.gohtml
@@ -32,7 +32,7 @@ func gen(w io.Writer, srcFile string) error {
 	}
 	return tpl.Execute(w, &Data{
 		File: file,
-		Opts: []string{"LT", "EQ", "GT"},
+		Opts: []string{"Lt", "Eq", "Gt"},
 	})
 }
 
@@ -41,6 +41,15 @@ type Data struct {
 	Opts []string
 }
 
+/*
+命令行跑， 生成testdata/user_gen.go
+
+1. cd orm_gen // 注意：package 需要改成main
+2. go install . // go install 到本地，这行代码会在gopath/bin下生成可执行命令，通过文件夹名称调用
+3. cd testdata // testdata 默认会被go忽略
+4. orm_gen user.go // user.go 是参数
+注意：main.go中的import "html/template" 需要改成 "text/template"， 不然“”会被转义
+*/
 func main() {
 	src := os.Args[1]
 	dstDir := filepath.Dir(src)

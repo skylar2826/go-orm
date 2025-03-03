@@ -1,4 +1,4 @@
-package sqlCommonBuilder
+package sql
 
 import (
 	"fmt"

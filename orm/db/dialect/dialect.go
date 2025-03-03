@@ -2,8 +2,10 @@ package dialect
 
 import (
 	"fmt"
+	"geektime-go-orm/orm/db/register"
+	"geektime-go-orm/orm/errors"
 	"geektime-go-orm/orm/predicate"
-	"geektime-go-orm/orm/sqlCommonBuilder"
+	"strings"
 )
 
 type OnDuplicateKey struct {
@@ -11,116 +13,157 @@ type OnDuplicateKey struct {
 	ConflictColumns []predicate.Column
 }
 
+type OnDuplicateKeyStatement struct {
+	Sql  string
+	Args []any
+}
+
 type Dialect interface {
 	Quoter() string
-	BuildOnDuplicateKey(builder *sqlCommonBuilder.SQLBuilder, OnDuplicateKey *OnDuplicateKey) error
+	BuildOnDuplicateKey(OnDuplicateKey *OnDuplicateKey) (*OnDuplicateKeyStatement, error)
+	RegisterModel(model *register.Model)
 }
 
 var _ Dialect = &StandardSQL{}
 var _ Dialect = &MysqlSQL{}
 
 type StandardSQL struct {
+	sqlBuilder strings.Builder
+	model      *register.Model
 }
 
 func (s *StandardSQL) Quoter() string {
 	return "\""
 }
 
-func (s *StandardSQL) BuildOnDuplicateKey(builder *sqlCommonBuilder.SQLBuilder, OnDuplicateKey *OnDuplicateKey) error {
-	builder.Sb.WriteString(" ON CONFLICT ")
+func (s *StandardSQL) buildColumn(column predicate.Column) error {
+	if s.model == nil {
+		return fmt.Errorf("builder: model不存在")
+	}
+	if name, ok := s.model.Fields[column.Name]; !ok {
+		return errors.FieldNotFoundErr(column.Name)
+	} else {
+		s.sqlBuilder.WriteString(fmt.Sprintf("%s%s%s", s.Quoter(), name.ColName, s.Quoter()))
+	}
+	return nil
+}
+
+func (s *StandardSQL) BuildOnDuplicateKey(OnDuplicateKey *OnDuplicateKey) (*OnDuplicateKeyStatement, error) {
+	s.sqlBuilder.WriteString(" ON CONFLICT ")
 
 	if len(OnDuplicateKey.ConflictColumns) > 0 {
-		builder.Sb.WriteString("(")
+		s.sqlBuilder.WriteString("(")
 		for idx, col := range OnDuplicateKey.ConflictColumns {
-			err := builder.BuildColumn(col)
+			err := s.buildColumn(col)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if idx < len(OnDuplicateKey.ConflictColumns)-1 {
-				builder.Sb.WriteString(",")
+				s.sqlBuilder.WriteString(",")
 			}
 		}
-		builder.Sb.WriteString(")")
+		s.sqlBuilder.WriteString(")")
 	}
 
-	builder.Sb.WriteString(" DO UPDATE SET ")
+	s.sqlBuilder.WriteString(" DO UPDATE SET ")
 	if len(OnDuplicateKey.Assigns) > 0 {
 		for idx, assign := range OnDuplicateKey.Assigns {
 			col, ok := assign.(predicate.Column)
 			if !ok {
-				return fmt.Errorf("assignable 类型错误：%s\n", assign)
+				return nil, fmt.Errorf("assignable 类型错误：%s\n", assign)
 			}
-			err := builder.BuildColumn(col)
+			err := s.buildColumn(col)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			builder.Sb.WriteString(" = Excluded.")
-			builder.Sb.WriteString(col.Name)
+			s.sqlBuilder.WriteString(" = Excluded.")
+			s.sqlBuilder.WriteString(col.Name)
 
 			if idx < len(OnDuplicateKey.Assigns)-1 {
-				builder.Sb.WriteString(",")
+				s.sqlBuilder.WriteString(",")
 			}
 		}
 	}
 
-	return nil
+	return &OnDuplicateKeyStatement{
+		Sql: s.sqlBuilder.String(),
+	}, nil
 }
 
-func NewStandardSQL() *StandardSQL {
+func (s *StandardSQL) RegisterModel(model *register.Model) {
+	s.model = model
+}
+
+func NewStandardSQL() Dialect {
 	return &StandardSQL{}
 }
 
 type MysqlSQL struct {
 	StandardSQL
-	Assigns []predicate.Assignable
+	Assigns []any
 }
 
 func (m *MysqlSQL) Quoter() string {
 	return "`"
 }
 
-func (m *MysqlSQL) BuildAssign(builder *sqlCommonBuilder.SQLBuilder, assign predicate.Assignable) error {
+func (m *MysqlSQL) buildColumn(column predicate.Column) error {
+	if m.model == nil {
+		return fmt.Errorf("builder: model不存在")
+	}
+	if name, ok := m.model.Fields[column.Name]; !ok {
+		return errors.FieldNotFoundErr(column.Name)
+	} else {
+		m.sqlBuilder.WriteString(fmt.Sprintf("%s%s%s", m.Quoter(), name.ColName, m.Quoter()))
+	}
+	return nil
+}
+
+func (m *MysqlSQL) BuildAssign(assign predicate.Assignable) error {
 	switch expr := assign.(type) {
 	case predicate.Assignment:
 		c := predicate.C(expr.ColName)
-		err := builder.BuildColumn(c)
+		err := m.buildColumn(c)
 		if err != nil {
 			return err
 		}
-		builder.Sb.WriteString(" = ?")
-		builder.Args = append(builder.Args, expr.Val)
+		m.sqlBuilder.WriteString(" = ?")
+		m.Assigns = append(m.Assigns, expr.Val)
 		return nil
 	case predicate.Column:
-		err := builder.BuildColumn(expr)
+		err := m.buildColumn(expr)
 		if err != nil {
 			return err
 		}
-		builder.Sb.WriteString(" = Values(")
-		err = builder.BuildColumn(expr)
+		m.sqlBuilder.WriteString(" = Values(")
+		err = m.buildColumn(expr)
 		if err != nil {
 			return err
 		}
-		builder.Sb.WriteString(")")
+		m.sqlBuilder.WriteString(")")
 	default:
 		return fmt.Errorf("无法识别的Assignable： %builder\n", expr)
 	}
 	return nil
 }
 
-func (m *MysqlSQL) BuildOnDuplicateKey(builder *sqlCommonBuilder.SQLBuilder, OnDuplicateKey *OnDuplicateKey) error {
-	builder.Sb.WriteString(" ON DUPLICATE KEY UPDATE ")
+func (m *MysqlSQL) BuildOnDuplicateKey(OnDuplicateKey *OnDuplicateKey) (*OnDuplicateKeyStatement, error) {
+	m.sqlBuilder.WriteString(" ON DUPLICATE KEY UPDATE ")
 	for idx, assign := range OnDuplicateKey.Assigns {
-		err := m.BuildAssign(builder, assign)
+		err := m.BuildAssign(assign)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if idx < len(OnDuplicateKey.Assigns)-1 {
-			builder.Sb.WriteString(",")
+			m.sqlBuilder.WriteString(",")
 		}
 	}
-	return nil
+	return &OnDuplicateKeyStatement{
+		Sql:  m.sqlBuilder.String(),
+		Args: m.Assigns,
+	}, nil
 }
 
-func NewMysqlSQL() *MysqlSQL {
+func NewMysqlSQL() Dialect {
 	return &MysqlSQL{}
 }
